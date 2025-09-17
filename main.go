@@ -24,12 +24,18 @@ func main() {
 	}
 
 	// Check if it's a CLI command
-	cliCommands := []string{"lights", "groups", "effects", "scenes", "hue-scenes", "sensors", "batch", "stream", "discover", "help"}
+	cliCommands := []string{"lights", "groups", "effects", "scenes", "custom-scenes", "sensors", "batch", "stream", "discover"}
 	for _, cmd := range cliCommands {
 		if os.Args[1] == cmd {
 			runCLI()
 			return
 		}
+	}
+
+	// Check for help or --help flag
+	if os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h" {
+		runCLI()
+		return
 	}
 
 	// Otherwise run MCP server (for unknown commands)
@@ -38,12 +44,18 @@ func main() {
 
 // runCLI initializes and runs the CLI interface
 func runCLI() {
+	// For help commands, don't initialize the client
+	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
+		cmd.Execute(nil)
+		return
+	}
+
 	// Initialize Hue client
 	hueClient := initHueClient()
-	
+
 	// Initialize scheduler
 	mcpserver.InitScheduler(hueClient)
-	
+
 	// Run CLI with the initialized client
 	cmd.Execute(hueClient)
 }
@@ -53,7 +65,7 @@ func initHueClient() *client.Client {
 	// Get configuration from environment
 	bridgeIP := os.Getenv("HUE_BRIDGE_IP")
 	if bridgeIP == "" {
-		bridgeIP = "192.168.87.51" // Default from handover doc
+		bridgeIP = "192.168.87.30" // Default bridge IP
 	}
 
 	username := os.Getenv("HUE_USERNAME")
@@ -398,8 +410,8 @@ func registerBatchTools(srv *server.MCPServer, client *client.Client) {
 		mcp.WithString("commands", mcp.Required(), mcp.Description("JSON array of commands. Example: [{\"action\":\"light_on\",\"target_id\":\"abc123\"}, {\"action\":\"light_color\",\"target_id\":\"abc123\",\"value\":\"#FF0000\"}, {\"action\":\"light_brightness\",\"target_id\":\"abc123\",\"value\":\"75\"}]")),
 		mcp.WithNumber("delay_ms", mcp.Description("Milliseconds to wait between each command - use for timing effects (default: 100)")),
 		mcp.WithBoolean("async", mcp.Description("Run in background (true) or wait for completion (false). Default true = non-blocking")),
-		mcp.WithString("cache_name", mcp.Description("Optional: Save this sequence as a named scene for instant recall later (e.g., 'alien_artifact_discovery')")),
-		mcp.WithString("cache_description", mcp.Description("Optional: Description of the cached scene to help remember its purpose")),
+		mcp.WithString("cache_name", mcp.Description("Optional: Save this sequence as a named custom scene for instant recall later (e.g., 'alien_artifact_discovery')")),
+		mcp.WithString("cache_description", mcp.Description("Optional: Description of the custom scene to help remember its purpose")),
 	)
 	srv.AddTool(batchTool, mcpserver.HandleBatchCommands(client))
 }
@@ -477,25 +489,25 @@ func registerSchedulerTools(srv *server.MCPServer, client *client.Client) {
 	srv.AddTool(customSequenceTool, mcpserver.HandleCustomSequence(client))
 	
 	// Scene cache tools
-	recallSceneTool := mcp.NewTool("recall_scene",
-		mcp.WithDescription("Instantly recall a previously cached lighting scene. Perfect for quickly setting up complex atmospheres in RPGs or recreating favorite lighting moods."),
+	recallSceneTool := mcp.NewTool("recall_custom_scene",
+		mcp.WithDescription("Instantly recall a previously cached custom lighting scene. Perfect for quickly setting up complex atmospheres in RPGs or recreating favorite lighting moods."),
 		mcp.WithString("scene_name", mcp.Required(), mcp.Description("Name of the cached scene to recall (e.g., 'alien_artifact_discovery')")),
 	)
 	srv.AddTool(recallSceneTool, mcpserver.HandleRecallScene(client))
 	
-	listCachedScenesTool := mcp.NewTool("list_cached_scenes",
-		mcp.WithDescription("List all available cached lighting scenes with their descriptions and usage statistics. Helps you remember what atmospheres you've created."),
+	listCachedScenesTool := mcp.NewTool("list_custom_scenes",
+		mcp.WithDescription("List all available custom lighting scenes with their descriptions and usage statistics. Helps you remember what atmospheres you've created."),
 	)
 	srv.AddTool(listCachedScenesTool, mcpserver.HandleListCachedScenes(client))
 	
-	clearCachedSceneTool := mcp.NewTool("clear_cached_scene",
-		mcp.WithDescription("Remove a cached scene from memory. Use this to clean up scenes you no longer need."),
+	clearCachedSceneTool := mcp.NewTool("clear_custom_scene",
+		mcp.WithDescription("Remove a custom scene from memory. Use this to clean up scenes you no longer need."),
 		mcp.WithString("scene_name", mcp.Required(), mcp.Description("Name of the cached scene to remove")),
 	)
 	srv.AddTool(clearCachedSceneTool, mcpserver.HandleClearCachedScene(client))
 	
-	exportSceneTool := mcp.NewTool("export_scene",
-		mcp.WithDescription("Export a cached scene as JSON for sharing or backup. Great for saving your favorite atmospheric setups."),
+	exportSceneTool := mcp.NewTool("export_custom_scene",
+		mcp.WithDescription("Export a custom scene as JSON for sharing or backup. Great for saving your favorite atmospheric setups."),
 		mcp.WithString("scene_name", mcp.Required(), mcp.Description("Name of the cached scene to export")),
 	)
 	srv.AddTool(exportSceneTool, mcpserver.HandleExportScene(client))

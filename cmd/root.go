@@ -28,11 +28,19 @@ var rootCmd = &cobra.Command{
 Control lights, groups, scenes, and effects directly from your terminal.
 Perfect for scripting, testing, or quick light adjustments.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Skip client init for commands that don't need it
-		if cmd.Name() == "help" || cmd.Name() == "discover" {
+		// Skip client init for help commands
+		if cmd.Name() == "help" || cmd.Name() == "hue" && cmd.CalledAs() == "help" {
 			return
 		}
-		
+		// Skip for discover command
+		if cmd.Name() == "discover" {
+			return
+		}
+		// Skip if no client provided (help was called)
+		if hueClient == nil {
+			return
+		}
+
 		// Initialize client and scheduler for all other commands
 		initializeClient()
 	},
