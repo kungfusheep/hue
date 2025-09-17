@@ -6,14 +6,15 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/kungfusheep/hue/client"
 	"github.com/kungfusheep/hue/cmd"
 	"github.com/kungfusheep/hue/effects"
-	"github.com/kungfusheep/hue/client"
 	mcpserver "github.com/kungfusheep/hue/mcp"
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
 )
 
 func main() {
@@ -25,11 +26,9 @@ func main() {
 
 	// Check if it's a CLI command
 	cliCommands := []string{"lights", "groups", "effects", "scenes", "custom-scenes", "sensors", "batch", "stream", "discover"}
-	for _, cmd := range cliCommands {
-		if os.Args[1] == cmd {
-			runCLI()
-			return
-		}
+	if slices.Contains(cliCommands, os.Args[1]) {
+		runCLI()
+		return
 	}
 
 	// Check for help or --help flag
@@ -231,7 +230,7 @@ func registerEffectTools(srv *server.MCPServer, client *client.Client) {
 	lightEffectTool := mcp.NewTool("light_effect",
 		mcp.WithDescription("Set a dynamic effect on a light"),
 		mcp.WithString("light_id", mcp.Required(), mcp.Description("The ID of the light")),
-		mcp.WithString("effect", mcp.Required(), 
+		mcp.WithString("effect", mcp.Required(),
 			mcp.Description("Effect to apply"),
 			mcp.Enum(supportedEffects...),
 		),
@@ -487,25 +486,25 @@ func registerSchedulerTools(srv *server.MCPServer, client *client.Client) {
 		mcp.WithString("sequence", mcp.Required(), mcp.Description("JSON sequence definition. Example: {\"name\":\"Sunrise\",\"loop\":false,\"commands\":[{\"type\":\"light\",\"action\":\"color\",\"target\":\"light_id\",\"params\":{\"color\":\"#FF4500\"},\"delay\":1000},{\"type\":\"light\",\"action\":\"brightness\",\"target\":\"light_id\",\"params\":{\"brightness\":100},\"delay\":2000}]}")),
 	)
 	srv.AddTool(customSequenceTool, mcpserver.HandleCustomSequence(client))
-	
+
 	// Scene cache tools
 	recallSceneTool := mcp.NewTool("recall_custom_scene",
 		mcp.WithDescription("Instantly recall a previously cached custom lighting scene. Perfect for quickly setting up complex atmospheres in RPGs or recreating favorite lighting moods."),
 		mcp.WithString("scene_name", mcp.Required(), mcp.Description("Name of the cached scene to recall (e.g., 'alien_artifact_discovery')")),
 	)
 	srv.AddTool(recallSceneTool, mcpserver.HandleRecallScene(client))
-	
+
 	listCachedScenesTool := mcp.NewTool("list_custom_scenes",
 		mcp.WithDescription("List all available custom lighting scenes with their descriptions and usage statistics. Helps you remember what atmospheres you've created."),
 	)
 	srv.AddTool(listCachedScenesTool, mcpserver.HandleListCachedScenes(client))
-	
+
 	clearCachedSceneTool := mcp.NewTool("clear_custom_scene",
 		mcp.WithDescription("Remove a custom scene from memory. Use this to clean up scenes you no longer need."),
 		mcp.WithString("scene_name", mcp.Required(), mcp.Description("Name of the cached scene to remove")),
 	)
 	srv.AddTool(clearCachedSceneTool, mcpserver.HandleClearCachedScene(client))
-	
+
 	exportSceneTool := mcp.NewTool("export_custom_scene",
 		mcp.WithDescription("Export a custom scene as JSON for sharing or backup. Great for saving your favorite atmospheric setups."),
 		mcp.WithString("scene_name", mcp.Required(), mcp.Description("Name of the cached scene to export")),
@@ -517,20 +516,20 @@ func registerSchedulerTools(srv *server.MCPServer, client *client.Client) {
 func registerEventTools(srv *server.MCPServer, client *client.Client) {
 	// Initialize event manager
 	mcpserver.InitEventManager(client)
-	
+
 	// Start event stream
 	startEventTool := mcp.NewTool("start_event_stream",
 		mcp.WithDescription("Start real-time event streaming from Hue bridge"),
 		mcp.WithString("filter", mcp.Description("Comma-separated event types to filter (e.g., 'light,motion,button')")),
 	)
 	srv.AddTool(startEventTool, mcpserver.HandleStartEventStream(client))
-	
+
 	// Stop event stream
 	stopEventTool := mcp.NewTool("stop_event_stream",
 		mcp.WithDescription("Stop the event stream"),
 	)
 	srv.AddTool(stopEventTool, mcpserver.HandleStopEventStream(client))
-	
+
 	// Get recent events
 	recentEventsTool := mcp.NewTool("get_recent_events",
 		mcp.WithDescription("Get recent events from the stream"),
@@ -538,7 +537,7 @@ func registerEventTools(srv *server.MCPServer, client *client.Client) {
 		mcp.WithString("type", mcp.Description("Filter by event type (e.g., 'light', 'motion', 'button')")),
 	)
 	srv.AddTool(recentEventsTool, mcpserver.HandleGetRecentEvents(client))
-	
+
 	// Get stream status
 	streamStatusTool := mcp.NewTool("get_event_stream_status",
 		mcp.WithDescription("Get the current status of the event stream"),
@@ -555,7 +554,7 @@ func registerCRUDTools(srv *server.MCPServer, client *client.Client) {
 		mcp.WithString("group_id", mcp.Required(), mcp.Description("Group/room ID to capture")),
 	)
 	srv.AddTool(createSceneFromStateTool, mcpserver.HandleCreateSceneFromState(client))
-	
+
 	updateSceneTool := mcp.NewTool("update_scene",
 		mcp.WithDescription("Update a scene's metadata"),
 		mcp.WithString("scene_id", mcp.Required(), mcp.Description("Scene ID to update")),
@@ -563,13 +562,13 @@ func registerCRUDTools(srv *server.MCPServer, client *client.Client) {
 		mcp.WithNumber("speed", mcp.Description("Transition speed (0.0-1.0)")),
 	)
 	srv.AddTool(updateSceneTool, mcpserver.HandleUpdateScene(client))
-	
+
 	deleteSceneTool := mcp.NewTool("delete_scene",
 		mcp.WithDescription("Delete a scene"),
 		mcp.WithString("scene_id", mcp.Required(), mcp.Description("Scene ID to delete")),
 	)
 	srv.AddTool(deleteSceneTool, mcpserver.HandleDeleteScene(client))
-	
+
 	// Group management
 	addLightToGroupTool := mcp.NewTool("add_light_to_group",
 		mcp.WithDescription("Add a light to a group/room"),
@@ -577,14 +576,14 @@ func registerCRUDTools(srv *server.MCPServer, client *client.Client) {
 		mcp.WithString("light_id", mcp.Required(), mcp.Description("Light ID to add")),
 	)
 	srv.AddTool(addLightToGroupTool, mcpserver.HandleAddLightToGroup(client))
-	
+
 	removeLightFromGroupTool := mcp.NewTool("remove_light_from_group",
 		mcp.WithDescription("Remove a light from a group/room"),
 		mcp.WithString("group_id", mcp.Required(), mcp.Description("Group ID")),
 		mcp.WithString("light_id", mcp.Required(), mcp.Description("Light ID to remove")),
 	)
 	srv.AddTool(removeLightFromGroupTool, mcpserver.HandleRemoveLightFromGroup(client))
-	
+
 	// Zone CRUD
 	createZoneTool := mcp.NewTool("create_zone",
 		mcp.WithDescription("Create a new zone with specified lights"),
@@ -592,7 +591,7 @@ func registerCRUDTools(srv *server.MCPServer, client *client.Client) {
 		mcp.WithString("light_ids", mcp.Required(), mcp.Description("Comma-separated light IDs")),
 	)
 	srv.AddTool(createZoneTool, mcpserver.HandleCreateZone(client))
-	
+
 	updateZoneTool := mcp.NewTool("update_zone",
 		mcp.WithDescription("Update a zone"),
 		mcp.WithString("zone_id", mcp.Required(), mcp.Description("Zone ID to update")),
@@ -600,13 +599,13 @@ func registerCRUDTools(srv *server.MCPServer, client *client.Client) {
 		mcp.WithString("light_ids", mcp.Description("Comma-separated light IDs to set")),
 	)
 	srv.AddTool(updateZoneTool, mcpserver.HandleUpdateZone(client))
-	
+
 	deleteZoneTool := mcp.NewTool("delete_zone",
 		mcp.WithDescription("Delete a zone"),
 		mcp.WithString("zone_id", mcp.Required(), mcp.Description("Zone ID to delete")),
 	)
 	srv.AddTool(deleteZoneTool, mcpserver.HandleDeleteZone(client))
-	
+
 	// Room update
 	updateRoomTool := mcp.NewTool("update_room",
 		mcp.WithDescription("Update a room's name"),

@@ -20,6 +20,8 @@ var (
 	showIDs     bool
 	showActions bool
 	showGroups  bool
+	dynamicMode bool
+	sceneSpeed  float64
 )
 
 // listHueScenesCmd lists all native Hue scenes
@@ -102,23 +104,52 @@ var listHueScenesCmd = &cobra.Command{
 var activateHueSceneCmd = &cobra.Command{
 	Use:   "activate <scene-name-or-id>",
 	Short: "Activate a native Hue scene",
-	Long:  `Activate a native Hue scene by name or ID. For scenes with the same name in different rooms, use 'SceneName:RoomName' format (e.g., 'Nightlight:Master Bedroom').`,
+	Long:  `Activate a native Hue scene by name or ID. For scenes with the same name in different rooms, use 'SceneName:RoomName' format (e.g., 'Nightlight:Master Bedroom').
+
+Use the --dynamic flag to activate animated/dynamic scenes that cycle through colors.
+Use the --speed flag to control animation speed (0.0 to 1.0, where 1.0 is fastest).`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
-		
+
 		// Resolve scene name to ID
 		sceneID, err := resolveSceneID(ctx, args[0])
 		if err != nil {
 			return err
 		}
-		
-		err = hueClient.ActivateScene(ctx, sceneID)
-		if err != nil {
-			return fmt.Errorf("failed to activate scene: %w", err)
+
+		// Update speed if specified (must be done before activation)
+		if sceneSpeed > 0 {
+			// Validate speed is between 0.0 and 1.0
+			if sceneSpeed < 0.0 || sceneSpeed > 1.0 {
+				return fmt.Errorf("speed must be between 0.0 and 1.0")
+			}
+			err = hueClient.UpdateSceneSpeed(ctx, sceneID, sceneSpeed)
+			if err != nil {
+				return fmt.Errorf("failed to update scene speed: %w", err)
+			}
+			printMessage("Scene speed set to %.2f", sceneSpeed)
 		}
-		
-		printMessage("Scene %s activated", args[0])
+
+		// Activate the scene
+		if dynamicMode {
+			err = hueClient.ActivateSceneDynamic(ctx, sceneID)
+			if err != nil {
+				return fmt.Errorf("failed to activate dynamic scene: %w", err)
+			}
+			if sceneSpeed > 0 {
+				printMessage("Scene %s activated in dynamic mode with speed %.2f", args[0], sceneSpeed)
+			} else {
+				printMessage("Scene %s activated in dynamic mode", args[0])
+			}
+		} else {
+			err = hueClient.ActivateScene(ctx, sceneID)
+			if err != nil {
+				return fmt.Errorf("failed to activate scene: %w", err)
+			}
+			printMessage("Scene %s activated", args[0])
+		}
+
 		return nil
 	},
 }
@@ -202,7 +233,11 @@ func init() {
 	listHueScenesCmd.Flags().BoolVar(&showIDs, "show-ids", false, "Show scene IDs")
 	listHueScenesCmd.Flags().BoolVar(&showActions, "show-actions", false, "Show action counts")
 	listHueScenesCmd.Flags().BoolVar(&showGroups, "show-groups", false, "Show group IDs")
-	
+
+	// Add flags to activate command
+	activateHueSceneCmd.Flags().BoolVarP(&dynamicMode, "dynamic", "d", false, "Activate scene in dynamic/animated mode")
+	activateHueSceneCmd.Flags().Float64VarP(&sceneSpeed, "speed", "s", 0.0, "Animation speed (0.0-1.0, requires --dynamic)")
+
 	// Add subcommands
 	scenesCmd.AddCommand(listHueScenesCmd)
 	scenesCmd.AddCommand(activateHueSceneCmd)

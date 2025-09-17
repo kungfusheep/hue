@@ -161,6 +161,26 @@ func (c *Client) ActivateScene(ctx context.Context, id string) error {
 	return err
 }
 
+// ActivateSceneDynamic activates a scene with dynamic/animated palette
+func (c *Client) ActivateSceneDynamic(ctx context.Context, id string) error {
+	update := map[string]interface{}{
+		"recall": map[string]interface{}{
+			"action": "dynamic_palette",
+		},
+	}
+	_, err := c.put(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
+	return err
+}
+
+// UpdateSceneSpeed updates the speed of a scene (must be done before activation)
+func (c *Client) UpdateSceneSpeed(ctx context.Context, id string, speed float64) error {
+	update := map[string]interface{}{
+		"speed": speed,
+	}
+	_, err := c.put(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
+	return err
+}
+
 // CreateScene creates a new scene
 func (c *Client) CreateScene(ctx context.Context, scene SceneCreate) (*Scene, error) {
 	var response struct {
