@@ -8,6 +8,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	turnOnWithColor bool
+)
+
 // lightsCmd represents the lights command group
 var lightsCmd = &cobra.Command{
 	Use:   "lights",
@@ -102,30 +106,42 @@ var lightOffCmd = &cobra.Command{
 var lightColorCmd = &cobra.Command{
 	Use:   "color <light-name-or-id> <color>",
 	Short: "Set light color (hex or name)",
-	Long:  `Set light color using hex code (#FF0000) or color name (red, blue, green, etc.)`,
+	Long:  `Set light color using hex code (#FF0000) or color name (red, blue, green, etc.)
+
+Use the --turn-on flag to turn on the light while setting its color (atomic operation).`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		color := args[1]
 		ctx := context.Background()
-		
+
 		// Resolve light name to ID
 		lightID, err := resolveLightID(ctx, args[0])
 		if err != nil {
 			return err
 		}
-		
+
 		// Convert color name to hex if needed
 		hexColor := namedColorToHex(color)
 		if hexColor == "" {
 			hexColor = color
 		}
-		
-		err = hueClient.SetLightColor(ctx, lightID, hexColor)
-		if err != nil {
-			return fmt.Errorf("failed to set color: %w", err)
+
+		if turnOnWithColor {
+			// Set color and turn on in a single atomic operation
+			err = hueClient.SetLightColorAndTurnOn(ctx, lightID, hexColor)
+			if err != nil {
+				return fmt.Errorf("failed to set color and turn on: %w", err)
+			}
+			printMessage("Light %s turned on and color set to %s", args[0], color)
+		} else {
+			// Just set the color
+			err = hueClient.SetLightColor(ctx, lightID, hexColor)
+			if err != nil {
+				return fmt.Errorf("failed to set color: %w", err)
+			}
+			printMessage("Light %s color set to %s", args[0], color)
 		}
-		
-		printMessage("Light %s color set to %s", args[0], color)
+
 		return nil
 	},
 }
@@ -170,23 +186,23 @@ var lightStateCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
-		
+
 		// Resolve light name to ID
 		lightID, err := resolveLightID(ctx, args[0])
 		if err != nil {
 			return err
 		}
-		
+
 		light, err := hueClient.GetLight(ctx, lightID)
 		if err != nil {
 			return fmt.Errorf("failed to get light: %w", err)
 		}
-		
+
 		if jsonOutput {
 			printJSON(light)
 			return nil
 		}
-		
+
 		// Human-readable output
 		fmt.Printf("Light: %s\n", light.Metadata.Name)
 		fmt.Printf("Type: %s\n", light.Metadata.Archetype)
@@ -203,12 +219,86 @@ var lightStateCmd = &cobra.Command{
 		if light.Effects != nil && light.Effects.Effect != "" {
 			fmt.Printf("Effect: %s\n", light.Effects.Effect)
 		}
-		
+
+		return nil
+	},
+}
+
+// lightEffectsListCmd lists available effects for a light
+var lightEffectsListCmd = &cobra.Command{
+	Use:   "effects-list <light-name-or-id>",
+	Short: "List available built-in effects for a light",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
+
+		// Resolve light name to ID
+		lightID, err := resolveLightID(ctx, args[0])
+		if err != nil {
+			return err
+		}
+
+		light, err := hueClient.GetLight(ctx, lightID)
+		if err != nil {
+			return fmt.Errorf("failed to get light: %w", err)
+		}
+
+		if light.Effects == nil || len(light.Effects.EffectValues) == 0 {
+			printMessage("No effects available for this light")
+			return nil
+		}
+
+		if jsonOutput {
+			printJSON(light.Effects.EffectValues)
+			return nil
+		}
+
+		fmt.Printf("Available effects for %s:\n\n", light.Metadata.Name)
+		for _, effect := range light.Effects.EffectValues {
+			currentMarker := ""
+			if light.Effects.Effect == effect {
+				currentMarker = " (current)"
+			}
+			fmt.Printf("  - %s%s\n", effect, currentMarker)
+		}
+
+		return nil
+	},
+}
+
+// lightEffectCmd sets a built-in effect on a light
+var lightEffectCmd = &cobra.Command{
+	Use:   "effect <light-name-or-id> <effect-name>",
+	Short: "Set a built-in effect on a light (fire, candle, sparkle, etc.)",
+	Long:  `Set a built-in Hue effect on a light. Use 'hue lights effects-list' to see available effects.
+
+Common effects include: fire, candle, sparkle, opal, glisten, no_effect (to stop)`,
+	Args:  cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
+		effectName := args[1]
+
+		// Resolve light name to ID
+		lightID, err := resolveLightID(ctx, args[0])
+		if err != nil {
+			return err
+		}
+
+		// Set effect with 0 duration (indefinite)
+		err = hueClient.SetLightEffect(ctx, lightID, effectName, 0)
+		if err != nil {
+			return fmt.Errorf("failed to set effect: %w", err)
+		}
+
+		printMessage("Effect '%s' set on %s", effectName, args[0])
 		return nil
 	},
 }
 
 func init() {
+	// Add flags
+	lightColorCmd.Flags().BoolVar(&turnOnWithColor, "turn-on", false, "Turn on the light when setting color (atomic operation)")
+
 	// Add subcommands
 	lightsCmd.AddCommand(listLightsCmd)
 	lightsCmd.AddCommand(lightOnCmd)
@@ -216,7 +306,9 @@ func init() {
 	lightsCmd.AddCommand(lightColorCmd)
 	lightsCmd.AddCommand(lightBrightnessCmd)
 	lightsCmd.AddCommand(lightStateCmd)
-	
+	lightsCmd.AddCommand(lightEffectsListCmd)
+	lightsCmd.AddCommand(lightEffectCmd)
+
 	// Add to root
 	rootCmd.AddCommand(lightsCmd)
 }

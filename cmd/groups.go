@@ -8,6 +8,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	turnOnGroupWithColor bool
+)
+
 // groupsCmd represents the groups command group
 var groupsCmd = &cobra.Command{
 	Use:   "groups",
@@ -99,29 +103,42 @@ var groupOffCmd = &cobra.Command{
 var groupColorCmd = &cobra.Command{
 	Use:   "color <group-name-or-id> <color>",
 	Short: "Set group color (hex or name)",
+	Long:  `Set group color using hex code (#FF0000) or color name (red, blue, green, etc.)
+
+Use the --turn-on flag to turn on all lights in the group while setting color (atomic operation).`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		color := args[1]
 		ctx := context.Background()
-		
+
 		// Resolve group name to ID
 		groupID, err := resolveGroupID(ctx, args[0])
 		if err != nil {
 			return err
 		}
-		
+
 		// Convert color name to hex if needed
 		hexColor := namedColorToHex(color)
 		if hexColor == "" {
 			hexColor = color
 		}
-		
-		err = hueClient.SetGroupColor(ctx, groupID, hexColor)
-		if err != nil {
-			return fmt.Errorf("failed to set color: %w", err)
+
+		if turnOnGroupWithColor {
+			// Set color and turn on in a single atomic operation
+			err = hueClient.SetGroupColorAndTurnOn(ctx, groupID, hexColor)
+			if err != nil {
+				return fmt.Errorf("failed to set color and turn on: %w", err)
+			}
+			printMessage("Group %s turned on and color set to %s", args[0], color)
+		} else {
+			// Just set the color
+			err = hueClient.SetGroupColor(ctx, groupID, hexColor)
+			if err != nil {
+				return fmt.Errorf("failed to set color: %w", err)
+			}
+			printMessage("Group %s color set to %s", args[0], color)
 		}
-		
-		printMessage("Group %s color set to %s", args[0], color)
+
 		return nil
 	},
 }
@@ -196,6 +213,9 @@ var listRoomsCmd = &cobra.Command{
 }
 
 func init() {
+	// Add flags
+	groupColorCmd.Flags().BoolVar(&turnOnGroupWithColor, "turn-on", false, "Turn on the group when setting color (atomic operation)")
+
 	// Add subcommands
 	groupsCmd.AddCommand(listGroupsCmd)
 	groupsCmd.AddCommand(groupOnCmd)
@@ -203,7 +223,7 @@ func init() {
 	groupsCmd.AddCommand(groupColorCmd)
 	groupsCmd.AddCommand(groupBrightnessCmd)
 	groupsCmd.AddCommand(listRoomsCmd)
-	
+
 	// Add to root
 	rootCmd.AddCommand(groupsCmd)
 }

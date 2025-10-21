@@ -26,6 +26,13 @@ func GetScheduler() *scheduler.Scheduler {
 	return globalScheduler
 }
 
+// isGroupID checks if the given ID refers to a group rather than a light
+func isGroupID(ctx context.Context, hueClient *client.Client, targetID string) bool {
+	// Try to get it as a group first
+	_, err := hueClient.GetGroup(ctx, targetID)
+	return err == nil
+}
+
 // HandleFlashEffect creates a flash effect
 func HandleFlashEffect(hueClient *client.Client) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -51,8 +58,14 @@ func HandleFlashEffect(hueClient *client.Client) server.ToolHandlerFunc {
 			flashDuration = time.Duration(fd) * time.Millisecond
 		}
 		
-		// Create and execute the flash effect
+		// Create the flash effect
 		seq := scheduler.CreateFlashEffect(targetID, color, flashCount, flashDuration)
+
+		// Check if target is a group and convert if needed
+		if isGroupID(ctx, hueClient, targetID) {
+			seq = scheduler.CreateGroupEffect(seq, targetID)
+		}
+
 		seqID, err := globalScheduler.ExecuteSequence(seq)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to start flash effect: %v", err)), nil
@@ -93,8 +106,14 @@ func HandlePulseEffect(hueClient *client.Client) server.ToolHandlerFunc {
 			pulseCount = int(pc)
 		}
 		
-		// Create and execute the pulse effect
+		// Create the pulse effect
 		seq := scheduler.CreatePulseEffect(targetID, minBrightness, maxBrightness, pulseDuration, pulseCount)
+
+		// Check if target is a group and convert if needed
+		if isGroupID(ctx, hueClient, targetID) {
+			seq = scheduler.CreateGroupEffect(seq, targetID)
+		}
+
 		seqID, err := globalScheduler.ExecuteSequence(seq)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to start pulse effect: %v", err)), nil
@@ -132,8 +151,14 @@ func HandleColorLoopEffect(hueClient *client.Client) server.ToolHandlerFunc {
 			transitionTime = time.Duration(tt) * time.Millisecond
 		}
 		
-		// Create and execute the color loop effect
+		// Create the color loop effect
 		seq := scheduler.CreateColorLoopEffect(targetID, colors, transitionTime)
+
+		// Check if target is a group and convert if needed
+		if isGroupID(ctx, hueClient, targetID) {
+			seq = scheduler.CreateGroupEffect(seq, targetID)
+		}
+
 		seqID, err := globalScheduler.ExecuteSequence(seq)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to start color loop: %v", err)), nil
@@ -169,8 +194,14 @@ func HandleStrobeEffect(hueClient *client.Client) server.ToolHandlerFunc {
 			duration = time.Duration(d) * time.Millisecond
 		}
 		
-		// Create and execute the strobe effect
+		// Create the strobe effect
 		seq := scheduler.CreateStrobeEffect(targetID, color, strobeRate, duration)
+
+		// Check if target is a group and convert if needed
+		if isGroupID(ctx, hueClient, targetID) {
+			seq = scheduler.CreateGroupEffect(seq, targetID)
+		}
+
 		seqID, err := globalScheduler.ExecuteSequence(seq)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to start strobe effect: %v", err)), nil
@@ -201,8 +232,14 @@ func HandleAlertEffect(hueClient *client.Client) server.ToolHandlerFunc {
 			normalColor = "#FFFFFF" // Default to white
 		}
 		
-		// Create and execute the alert effect
+		// Create the alert effect
 		seq := scheduler.CreateAlertEffect(targetID, alertColor, normalColor)
+
+		// Check if target is a group and convert if needed
+		if isGroupID(ctx, hueClient, targetID) {
+			seq = scheduler.CreateGroupEffect(seq, targetID)
+		}
+
 		seqID, err := globalScheduler.ExecuteSequence(seq)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("Failed to start alert effect: %v", err)), nil

@@ -354,6 +354,15 @@ func (c *Client) SetLightColor(ctx context.Context, id string, hexColor string) 
 	})
 }
 
+// SetLightColorAndTurnOn sets a light's color and turns it on in a single atomic operation
+func (c *Client) SetLightColorAndTurnOn(ctx context.Context, id string, hexColor string) error {
+	x, y := hexToXY(hexColor)
+	return c.UpdateLight(ctx, id, LightUpdate{
+		On:    &OnState{On: true},
+		Color: &Color{XY: XY{X: x, Y: y}},
+	})
+}
+
 // SetLightEffect sets a light's effect
 func (c *Client) SetLightEffect(ctx context.Context, id string, effect string, duration int) error {
 	update := LightUpdate{
@@ -392,6 +401,15 @@ func (c *Client) SetGroupBrightness(ctx context.Context, id string, brightness f
 func (c *Client) SetGroupColor(ctx context.Context, id string, hexColor string) error {
 	x, y := hexToXY(hexColor)
 	return c.UpdateGroup(ctx, id, GroupUpdate{
+		Color: &Color{XY: XY{X: x, Y: y}},
+	})
+}
+
+// SetGroupColorAndTurnOn sets a group's color and turns it on in a single atomic operation
+func (c *Client) SetGroupColorAndTurnOn(ctx context.Context, id string, hexColor string) error {
+	x, y := hexToXY(hexColor)
+	return c.UpdateGroup(ctx, id, GroupUpdate{
+		On:    &OnState{On: true},
 		Color: &Color{XY: XY{X: x, Y: y}},
 	})
 }
