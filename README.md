@@ -1,8 +1,36 @@
 # Philips Hue MCP Server & CLI
 
-A Model Context Protocol (MCP) server and CLI for Philips Hue v2 API, enabling native lighting effects and comprehensive control for both AI agents and command-line users.
+A Model Context Protocol (MCP) server and CLI for Philips Hue v2 API, enabling native lighting effects and comprehensive control for both AI agents and command-line/scripting users.
 
 ## Features
+
+### 🔍 **Query System**
+Control multiple lights with intuitive pattern matching:
+
+```bash
+# By type
+hue lights color @"sultan" red              # All sultan bulbs
+hue lights on @"type:go,strip"              # Hue Go or lightstrip
+
+# By state
+hue lights off @"on: brightness>80"         # Turn off bright lights
+hue lights brightness @"brightness<30" 100  # Boost dim lights
+
+# By room/location (OR)
+hue lights color @"office,bedroom" blue     # Office OR bedroom lights
+
+# By capability
+hue lights effect @"with:effects" fire      # Only effect-capable lights
+
+# Complex queries
+hue lights on @"sultan on: brightness<60 -bedroom"  # Sultan bulbs that are on, not too bright, not in bedroom
+```
+
+**Filters:** `name:`, `type:`, `room:`, `on:`, `off:`, `with:effects`, `with:color`, `effect:`, `brightness>/<`, `mode:`, `gamut:`, `id:`
+**Operators:** Space=AND, Comma=OR, Dash=NOT
+**Concurrent execution** with semaphore limiting (10 concurrent requests)
+
+See [QUERY_SYNTAX.md](QUERY_SYNTAX.md) for complete documentation.
 
 ### Core Lighting Control
 - ✅ **Native v2 Effects**: Candle, fire, sparkle, cosmos, prism, opal, glisten, and more!
@@ -11,7 +39,7 @@ A Model Context Protocol (MCP) server and CLI for Philips Hue v2 API, enabling n
 - ✅ **Scene Support**: Activate and manage scenes
 - ✅ **Device Discovery**: Automatic detection of all Hue devices
 
-### Advanced Features (New!)
+### Advanced Features
 - 🚀 **Non-blocking Operations**: All commands execute asynchronously by default
 - 🎭 **Pre-built Effects**: Flash, pulse, color loop, strobe, and alert patterns
 - 🎨 **Custom Sequences**: Build complex lighting choreography with precise timing

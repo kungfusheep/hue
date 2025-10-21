@@ -107,6 +107,10 @@ func init() {
 	batchCmd.Flags().StringVar(&batchCacheName, "cache-name", "", "Save this batch as a cached scene")
 	batchCmd.Flags().StringVar(&batchDescription, "cache-desc", "", "Description for cached scene")
 	batchCmd.Flags().StringVarP(&batchFile, "file", "f", "", "Read commands from JSON file")
-	
+
 	rootCmd.AddCommand(batchCmd)
 }
+
+// MaxConcurrentRequests defines the maximum number of concurrent API requests
+// to avoid overwhelming the Hue bridge
+const MaxConcurrentRequests = 10

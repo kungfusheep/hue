@@ -14,7 +14,9 @@ var (
 	// Global flags
 	jsonOutput bool
 	quiet      bool
-	
+	dryRun     bool
+	verbose    bool
+
 	// Shared Hue client
 	hueClient *client.Client
 )
@@ -73,6 +75,8 @@ func init() {
 	// Global flags
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
 	rootCmd.PersistentFlags().BoolVarP(&quiet, "quiet", "q", false, "Suppress non-essential output")
+	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Show what would be affected without making changes")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Show detailed output")
 }
 
 // Helper functions for output

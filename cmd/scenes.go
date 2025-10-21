@@ -26,18 +26,21 @@ var (
 
 // listHueScenesCmd lists all native Hue scenes
 var listHueScenesCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all native Hue scenes",
+	Use:   "list [query]",
+	Short: "List all native Hue scenes (optionally filtered)",
+	Long: `List all scenes or filter using simple pattern matching.
+
+Examples:
+  hue scenes list                  # all scenes
+  hue scenes list relax            # scenes with "relax" in name
+  hue scenes list @"*bright*"      # scenes with "bright" in name
+  hue scenes list @"room:bedroom"  # scenes for bedroom`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
-		scenes, err := hueClient.GetScenes(ctx)
+		allScenes, err := hueClient.GetScenes(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to list scenes: %w", err)
-		}
-
-		if jsonOutput {
-			printJSON(scenes)
-			return nil
 		}
 
 		// Get rooms to map group IDs to room names
@@ -60,8 +63,81 @@ var listHueScenesCmd = &cobra.Command{
 			}
 		}
 
+		// Filter scenes if query/pattern provided
+		var scenes []client.Scene
+		if len(args) > 0 {
+			pattern := strings.ToLower(args[0])
+			roomFilter := ""
+
+			// Check for room: prefix
+			if strings.HasPrefix(pattern, "@\"room:") {
+				pattern = strings.TrimPrefix(pattern, "@\"room:")
+				pattern = strings.TrimSuffix(pattern, "\"")
+				roomFilter = pattern
+				pattern = ""
+			} else if strings.HasPrefix(pattern, "@\"") {
+				// Remove @ and quotes for pattern matching
+				pattern = strings.TrimPrefix(pattern, "@\"")
+				pattern = strings.TrimSuffix(pattern, "\"")
+			}
+
+			// Filter scenes
+			for _, scene := range allScenes {
+				sceneName := strings.ToLower(scene.Metadata.Name)
+				roomName := ""
+				if scene.Group.RType == "room" || scene.Group.RType == "zone" {
+					roomName = strings.ToLower(roomIDToName[scene.Group.RID])
+				}
+
+				match := false
+				if roomFilter != "" {
+					// Room filter mode
+					match = strings.Contains(roomName, roomFilter)
+				} else if pattern != "" {
+					// Pattern matching (with wildcards)
+					if strings.Contains(pattern, "*") {
+						// Simple wildcard matching
+						if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+							inner := strings.Trim(pattern, "*")
+							match = strings.Contains(sceneName, inner)
+						} else if strings.HasPrefix(pattern, "*") {
+							suffix := strings.TrimPrefix(pattern, "*")
+							match = strings.HasSuffix(sceneName, suffix)
+						} else if strings.HasSuffix(pattern, "*") {
+							prefix := strings.TrimSuffix(pattern, "*")
+							match = strings.HasPrefix(sceneName, prefix)
+						}
+					} else {
+						// Substring match
+						match = strings.Contains(sceneName, pattern)
+					}
+				}
+
+				if match {
+					scenes = append(scenes, scene)
+				}
+			}
+
+			if len(scenes) == 0 {
+				printMessage("No scenes matched pattern: %s", args[0])
+				return nil
+			}
+		} else {
+			scenes = allScenes
+		}
+
+		if jsonOutput {
+			printJSON(scenes)
+			return nil
+		}
+
 		// Human-readable output
-		fmt.Printf("Found %d Hue scenes:\n\n", len(scenes))
+		if len(args) > 0 {
+			fmt.Printf("Pattern '%s' matched %d scene(s):\n\n", args[0], len(scenes))
+		} else {
+			fmt.Printf("Found %d Hue scenes:\n\n", len(scenes))
+		}
+
 		for _, scene := range scenes {
 			// Basic output - scene name and room
 			roomName := ""

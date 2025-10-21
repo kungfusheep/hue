@@ -4,12 +4,105 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	
+
 	"github.com/kungfusheep/hue/client"
+	"github.com/kungfusheep/hue/query"
 )
 
-// resolveLightID takes a name or ID and returns the actual light ID
-func resolveLightID(ctx context.Context, nameOrID string) (string, error) {
+// resolveLightIDs takes a name, ID, or query and returns one or more light IDs
+func resolveLightIDs(ctx context.Context, nameOrIDOrQuery string) ([]string, error) {
+	// Check if this is a query
+	if query.IsQuery(nameOrIDOrQuery) {
+		return resolveLightQuery(ctx, nameOrIDOrQuery)
+	}
+
+	// Otherwise, resolve as a single light
+	lightID, err := resolveSingleLight(ctx, nameOrIDOrQuery)
+	if err != nil {
+		return nil, err
+	}
+	return []string{lightID}, nil
+}
+
+// resolveLightQuery executes a query and returns matching light IDs
+func resolveLightQuery(ctx context.Context, queryStr string) ([]string, error) {
+	// Get all lights
+	lights, err := hueClient.GetLights(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get lights: %w", err)
+	}
+
+	// Build query context with room/zone data (only if needed)
+	var queryCtx *query.Context
+
+	if query.NeedsRoomContext(queryStr) {
+		queryCtx = &query.Context{}
+
+		// Fetch rooms and zones for room: filter
+		rooms, err := hueClient.GetRooms(ctx)
+		if err == nil {
+			queryCtx.Rooms = rooms
+		}
+
+		zones, err := hueClient.GetZones(ctx)
+		if err == nil {
+			queryCtx.Zones = zones
+		}
+	}
+
+	// Handle dry-run mode
+	if dryRun {
+		// Parse and execute for dry-run
+		q, err := query.Parse(queryStr)
+		if err != nil {
+			return nil, err
+		}
+
+		matched := query.ExecuteWithContext(q, lights, queryCtx)
+
+		// Format and print dry-run result
+		result := &query.DryRunResult{
+			Query:   queryStr,
+			Matched: matched,
+			Count:   len(matched),
+		}
+		fmt.Print(query.FormatDryRun(result, verbose))
+
+		// Return empty to indicate dry-run
+		return nil, fmt.Errorf("dry-run mode: no changes made")
+	}
+
+	// Execute the query
+	q, err := query.Parse(queryStr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse query: %w", err)
+	}
+
+	matched := query.ExecuteWithContext(q, lights, queryCtx)
+
+	if len(matched) == 0 {
+		return nil, fmt.Errorf("query %q matched no lights", queryStr)
+	}
+
+	// Extract IDs
+	var ids []string
+	for _, light := range matched {
+		ids = append(ids, light.ID)
+	}
+
+	// Show what matched if verbose
+	if verbose && !quiet {
+		fmt.Printf("Query %q matched %d light(s):\n", queryStr, len(matched))
+		for _, light := range matched {
+			fmt.Printf("  ✓ %s\n", light.Metadata.Name)
+		}
+	}
+
+	return ids, nil
+}
+
+// resolveSingleLight takes a name or ID and returns the actual light ID (legacy function)
+func resolveSingleLight(ctx context.Context, nameOrID string) (string, error) {
 	// If it looks like a UUID, return it as-is
 	if strings.Contains(nameOrID, "-") && len(nameOrID) > 30 {
 		return nameOrID, nil
@@ -320,4 +413,25 @@ func formatSceneMatches(matches []struct {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// resolveLightID is kept for backward compatibility - resolves to single light only
+func resolveLightID(ctx context.Context, nameOrID string) (string, error) {
+	if query.IsQuery(nameOrID) {
+		return "", fmt.Errorf("query syntax not supported for this command (use a single light name or ID)")
+	}
+	return resolveSingleLight(ctx, nameOrID)
+}
+
+
+// resolveGroupIDs takes a name, ID, or simple pattern and returns one or more group IDs
+// Note: Groups use simple pattern matching, not full query syntax like lights
+func resolveGroupIDs(ctx context.Context, nameOrIDOrPattern string) ([]string, error) {
+	// For now, groups just use single resolution
+	// Could be extended with pattern matching in the future
+	groupID, err := resolveGroupID(ctx, nameOrIDOrPattern)
+	if err != nil {
+		return nil, err
+	}
+	return []string{groupID}, nil
 }
