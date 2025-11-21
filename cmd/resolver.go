@@ -424,11 +424,59 @@ func resolveLightID(ctx context.Context, nameOrID string) (string, error) {
 }
 
 
-// resolveGroupIDs takes a name, ID, or simple pattern and returns one or more group IDs
-// Note: Groups use simple pattern matching, not full query syntax like lights
+// resolveGroupIDs resolves a group name/ID or simple pattern to group IDs
 func resolveGroupIDs(ctx context.Context, nameOrIDOrPattern string) ([]string, error) {
-	// For now, groups just use single resolution
-	// Could be extended with pattern matching in the future
+	// Check for simple pattern (not full query system like lights)
+	if strings.HasPrefix(nameOrIDOrPattern, "@") {
+		// Simple pattern matching for groups
+		pattern := strings.TrimPrefix(nameOrIDOrPattern, "@")
+		pattern = strings.Trim(pattern, "\"")
+		pattern = strings.ToLower(pattern)
+
+		rooms, err := hueClient.GetRooms(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get rooms: %w", err)
+		}
+
+		var groupIDs []string
+		for _, room := range rooms {
+			roomName := strings.ToLower(room.Metadata.Name)
+			// Simple substring or wildcard match
+			match := false
+			if strings.Contains(pattern, "*") {
+				if strings.HasPrefix(pattern, "*") && strings.HasSuffix(pattern, "*") {
+					inner := strings.Trim(pattern, "*")
+					match = strings.Contains(roomName, inner)
+				} else if strings.HasPrefix(pattern, "*") {
+					suffix := strings.TrimPrefix(pattern, "*")
+					match = strings.HasSuffix(roomName, suffix)
+				} else if strings.HasSuffix(pattern, "*") {
+					prefix := strings.TrimSuffix(pattern, "*")
+					match = strings.HasPrefix(roomName, prefix)
+				}
+			} else {
+				match = strings.Contains(roomName, pattern)
+			}
+
+			if match {
+				// Find grouped_light service
+				for _, service := range room.Services {
+					if service.RType == "grouped_light" {
+						groupIDs = append(groupIDs, service.RID)
+						break
+					}
+				}
+			}
+		}
+
+		if len(groupIDs) == 0 {
+			return nil, fmt.Errorf("no groups matched pattern: %s", nameOrIDOrPattern)
+		}
+
+		return groupIDs, nil
+	}
+
+	// Single group resolution
 	groupID, err := resolveGroupID(ctx, nameOrIDOrPattern)
 	if err != nil {
 		return nil, err

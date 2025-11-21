@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 
 	"github.com/spf13/cobra"
 )
@@ -53,66 +54,150 @@ var listGroupsCmd = &cobra.Command{
 
 // groupOnCmd turns a group on
 var groupOnCmd = &cobra.Command{
-	Use:   "on <group-name-or-id>",
+	Use:   "on <group-name-or-pattern>",
 	Short: "Turn a group on",
+	Long: `Turn one or more groups on.
+
+Supports patterns using @"..." syntax:
+  hue groups on @"bedroom"
+  hue groups on @"*stairs"`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
-		
-		// Resolve group name to ID
-		groupID, err := resolveGroupID(ctx, args[0])
+
+		// Resolve group name/pattern to IDs
+		groupIDs, err := resolveGroupIDs(ctx, args[0])
 		if err != nil {
 			return err
 		}
-		
-		err = hueClient.TurnOnGroup(ctx, groupID)
-		if err != nil {
-			return fmt.Errorf("failed to turn on group: %w", err)
+
+		// Apply to all matched groups concurrently
+		semaphore := make(chan struct{}, MaxConcurrentRequests)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errors []error
+		successCount := 0
+
+		for _, groupID := range groupIDs {
+			wg.Add(1)
+
+			go func(id string) {
+				defer wg.Done()
+
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				err := hueClient.TurnOnGroup(ctx, id)
+
+				mu.Lock()
+				if err != nil {
+					errors = append(errors, err)
+				} else {
+					successCount++
+				}
+				mu.Unlock()
+			}(groupID)
 		}
-		
-		printMessage("Group %s turned on", args[0])
+
+		wg.Wait()
+
+		// Report results
+		if len(groupIDs) > 1 {
+			printMessage("✓ Turned on %d/%d groups", successCount, len(groupIDs))
+		} else if successCount > 0 {
+			printMessage("Group %s turned on", args[0])
+		}
+
+		if len(errors) > 0 {
+			return fmt.Errorf("%d groups failed", len(errors))
+		}
+
 		return nil
 	},
 }
 
 // groupOffCmd turns a group off
 var groupOffCmd = &cobra.Command{
-	Use:   "off <group-name-or-id>",
+	Use:   "off <group-name-or-pattern>",
 	Short: "Turn a group off",
+	Long: `Turn one or more groups off.
+
+Supports patterns using @"..." syntax:
+  hue groups off @"bedroom"
+  hue groups off @"down*"`,
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
-		
-		// Resolve group name to ID
-		groupID, err := resolveGroupID(ctx, args[0])
+
+		// Resolve group name/pattern to IDs
+		groupIDs, err := resolveGroupIDs(ctx, args[0])
 		if err != nil {
 			return err
 		}
-		
-		err = hueClient.TurnOffGroup(ctx, groupID)
-		if err != nil {
-			return fmt.Errorf("failed to turn off group: %w", err)
+
+		// Apply to all matched groups concurrently
+		semaphore := make(chan struct{}, MaxConcurrentRequests)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errors []error
+		successCount := 0
+
+		for _, groupID := range groupIDs {
+			wg.Add(1)
+
+			go func(id string) {
+				defer wg.Done()
+
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				err := hueClient.TurnOffGroup(ctx, id)
+
+				mu.Lock()
+				if err != nil {
+					errors = append(errors, err)
+				} else {
+					successCount++
+				}
+				mu.Unlock()
+			}(groupID)
 		}
-		
-		printMessage("Group %s turned off", args[0])
+
+		wg.Wait()
+
+		// Report results
+		if len(groupIDs) > 1 {
+			printMessage("✓ Turned off %d/%d groups", successCount, len(groupIDs))
+		} else if successCount > 0 {
+			printMessage("Group %s turned off", args[0])
+		}
+
+		if len(errors) > 0 {
+			return fmt.Errorf("%d groups failed", len(errors))
+		}
+
 		return nil
 	},
 }
 
 // groupColorCmd sets group color
 var groupColorCmd = &cobra.Command{
-	Use:   "color <group-name-or-id> <color>",
+	Use:   "color <group-name-or-pattern> <color>",
 	Short: "Set group color (hex or name)",
 	Long:  `Set group color using hex code (#FF0000) or color name (red, blue, green, etc.)
 
-Use the --turn-on flag to turn on all lights in the group while setting color (atomic operation).`,
+Use the --turn-on flag to turn on all lights in the group while setting color (atomic operation).
+
+Supports patterns using @"..." syntax:
+  hue groups color @"bedroom" red
+  hue groups color @"down*" blue`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		color := args[1]
 		ctx := context.Background()
 
-		// Resolve group name to ID
-		groupID, err := resolveGroupID(ctx, args[0])
+		// Resolve group name/pattern to IDs
+		groupIDs, err := resolveGroupIDs(ctx, args[0])
 		if err != nil {
 			return err
 		}
@@ -123,20 +208,58 @@ Use the --turn-on flag to turn on all lights in the group while setting color (a
 			hexColor = color
 		}
 
-		if turnOnGroupWithColor {
-			// Set color and turn on in a single atomic operation
-			err = hueClient.SetGroupColorAndTurnOn(ctx, groupID, hexColor)
-			if err != nil {
-				return fmt.Errorf("failed to set color and turn on: %w", err)
+		// Apply to all matched groups concurrently
+		semaphore := make(chan struct{}, MaxConcurrentRequests)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errors []error
+		successCount := 0
+
+		for _, groupID := range groupIDs {
+			wg.Add(1)
+
+			go func(id string) {
+				defer wg.Done()
+
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				var err error
+				if turnOnGroupWithColor {
+					err = hueClient.SetGroupColorAndTurnOn(ctx, id, hexColor)
+				} else {
+					err = hueClient.SetGroupColor(ctx, id, hexColor)
+				}
+
+				mu.Lock()
+				if err != nil {
+					errors = append(errors, err)
+				} else {
+					successCount++
+				}
+				mu.Unlock()
+			}(groupID)
+		}
+
+		wg.Wait()
+
+		// Report results
+		if len(groupIDs) > 1 {
+			if turnOnGroupWithColor {
+				printMessage("✓ Set color to %s and turned on %d/%d groups", color, successCount, len(groupIDs))
+			} else {
+				printMessage("✓ Set color to %s on %d/%d groups", color, successCount, len(groupIDs))
 			}
-			printMessage("Group %s turned on and color set to %s", args[0], color)
-		} else {
-			// Just set the color
-			err = hueClient.SetGroupColor(ctx, groupID, hexColor)
-			if err != nil {
-				return fmt.Errorf("failed to set color: %w", err)
+		} else if successCount > 0 {
+			if turnOnGroupWithColor {
+				printMessage("Group %s turned on and color set to %s", args[0], color)
+			} else {
+				printMessage("Group %s color set to %s", args[0], color)
 			}
-			printMessage("Group %s color set to %s", args[0], color)
+		}
+
+		if len(errors) > 0 {
+			return fmt.Errorf("%d groups failed", len(errors))
 		}
 
 		return nil
@@ -145,33 +268,73 @@ Use the --turn-on flag to turn on all lights in the group while setting color (a
 
 // groupBrightnessCmd sets group brightness
 var groupBrightnessCmd = &cobra.Command{
-	Use:   "brightness <group-name-or-id> <percent>",
+	Use:   "brightness <group-name-or-pattern> <percent>",
 	Short: "Set group brightness (0-100)",
+	Long: `Set brightness for one or more groups.
+
+Supports patterns using @"..." syntax:
+  hue groups brightness @"bedroom" 50
+  hue groups brightness @"*stairs" 20`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		brightness, err := strconv.ParseFloat(args[1], 64)
 		if err != nil {
 			return fmt.Errorf("invalid brightness value: %w", err)
 		}
-		
+
 		if brightness < 0 || brightness > 100 {
 			return fmt.Errorf("brightness must be between 0 and 100")
 		}
-		
+
 		ctx := context.Background()
-		
-		// Resolve group name to ID
-		groupID, err := resolveGroupID(ctx, args[0])
+
+		// Resolve group name/pattern to IDs
+		groupIDs, err := resolveGroupIDs(ctx, args[0])
 		if err != nil {
 			return err
 		}
-		
-		err = hueClient.SetGroupBrightness(ctx, groupID, brightness)
-		if err != nil {
-			return fmt.Errorf("failed to set brightness: %w", err)
+
+		// Apply to all matched groups concurrently
+		semaphore := make(chan struct{}, MaxConcurrentRequests)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errors []error
+		successCount := 0
+
+		for _, groupID := range groupIDs {
+			wg.Add(1)
+
+			go func(id string) {
+				defer wg.Done()
+
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				err := hueClient.SetGroupBrightness(ctx, id, brightness)
+
+				mu.Lock()
+				if err != nil {
+					errors = append(errors, err)
+				} else {
+					successCount++
+				}
+				mu.Unlock()
+			}(groupID)
 		}
-		
-		printMessage("Group %s brightness set to %.0f%%", args[0], brightness)
+
+		wg.Wait()
+
+		// Report results
+		if len(groupIDs) > 1 {
+			printMessage("✓ Set brightness to %.0f%% on %d/%d groups", brightness, successCount, len(groupIDs))
+		} else if successCount > 0 {
+			printMessage("Group %s brightness set to %.0f%%", args[0], brightness)
+		}
+
+		if len(errors) > 0 {
+			return fmt.Errorf("%d groups failed", len(errors))
+		}
+
 		return nil
 	},
 }

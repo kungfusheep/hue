@@ -11,6 +11,7 @@ import (
 type Query struct {
 	Raw   string
 	Terms []Term
+	AST   exprNode // Internal AST for bracket expressions (nil if no brackets)
 }
 
 // Context provides additional data for query execution
@@ -71,9 +72,21 @@ func Parse(queryStr string) (*Query, error) {
 	queryStr = strings.Trim(queryStr, `"`)
 
 	q := &Query{
-		Raw:   queryStr,
-		Terms: []Term{},
+		Raw: queryStr,
 	}
+
+	// Check if query has brackets - use AST parser
+	if hasBrackets(queryStr) {
+		ast, err := parseBrackets(queryStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse brackets: %w", err)
+		}
+		q.AST = ast
+		return q, nil
+	}
+
+	// Otherwise use simple term-based parsing (backward compatible)
+	q.Terms = []Term{}
 
 	// Split by space for AND terms
 	andTerms := strings.Fields(queryStr)
@@ -178,7 +191,12 @@ func Execute(q *Query, lights []client.Light) []client.Light {
 
 // ExecuteWithContext executes a query with additional context (rooms, devices, etc.)
 func ExecuteWithContext(q *Query, lights []client.Light, ctx *Context) []client.Light {
-	// Handle empty query
+	// If query has AST (bracket expression), evaluate it
+	if q.AST != nil {
+		return q.AST.evaluate(lights, ctx)
+	}
+
+	// Otherwise use term-based execution (backward compatible)
 	if len(q.Terms) == 0 {
 		return []client.Light{}
 	}
