@@ -25,7 +25,7 @@ func main() {
 	}
 
 	// Check if it's a CLI command
-	cliCommands := []string{"lights", "groups", "effects", "scenes", "custom-scenes", "sensors", "batch", "stream", "discover"}
+	cliCommands := []string{"lights", "groups", "effects", "scenes", "custom-scenes", "sensors", "batch", "stream", "discover", "tui", "ui", "control"}
 	if slices.Contains(cliCommands, os.Args[1]) {
 		runCLI()
 		return

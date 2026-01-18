@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/kungfusheep/hue/client"
@@ -12,7 +13,9 @@ import (
 )
 
 var (
-	turnOnWithColor bool
+	turnOnWithColor      bool
+	turnOnWithBrightness bool
+	transitionMs         int // Transition time in milliseconds
 )
 
 // lightsCmd represents the lights command group
@@ -267,15 +270,16 @@ Supports queries using @"..." syntax:
 // lightColorCmd sets light color
 var lightColorCmd = &cobra.Command{
 	Use:   "color <light-name-or-query> <color>",
-	Short: "Set light color (hex or name)",
-	Long:  `Set light color using hex code (#FF0000) or color name (red, blue, green, etc.)
+	Short: "Set light color (hex, name, or xy)",
+	Long:  `Set light color using hex code (#FF0000), color name (red, blue, etc.), or XY coordinates (0.5,0.4).
 
 Use the --turn-on flag to turn on the light while setting its color (atomic operation).
+Use --transition to smoothly fade to the target color over time.
 
 Supports queries using @"..." syntax:
   hue lights color @"office" red
-  hue lights color @"*lamp" blue
-  hue lights color @"room:bedroom type:go" warm_white`,
+  hue lights color @"*lamp" "#FF5500" --transition 2000
+  hue lights color @"room:bedroom" 0.5,0.4`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		color := args[1]
@@ -287,10 +291,20 @@ Supports queries using @"..." syntax:
 			return err
 		}
 
-		// Convert color name to hex if needed
-		hexColor := namedColorToHex(color)
-		if hexColor == "" {
-			hexColor = color
+		// Check if color is XY format (e.g., "0.5,0.4")
+		var isXY bool
+		var xyX, xyY float64
+		if parts := splitXY(color); parts != nil {
+			isXY = true
+			xyX, xyY = parts[0], parts[1]
+		}
+
+		// Convert color name to hex if needed (and not XY)
+		hexColor := color
+		if !isXY {
+			if named := namedColorToHex(color); named != "" {
+				hexColor = named
+			}
 		}
 
 		// Apply to all matched lights concurrently
@@ -311,10 +325,13 @@ Supports queries using @"..." syntax:
 				defer func() { <-semaphore }()
 
 				var err error
-				if turnOnWithColor {
+				if isXY {
+					// Use XY directly (no transition support for XY yet)
+					err = hueClient.SetLightColorXY(ctx, id, xyX, xyY)
+				} else if turnOnWithColor {
 					err = hueClient.SetLightColorAndTurnOn(ctx, id, hexColor)
 				} else {
-					err = hueClient.SetLightColor(ctx, id, hexColor)
+					err = hueClient.SetLightColorWithTransition(ctx, id, hexColor, transitionMs)
 				}
 
 				mu.Lock()
@@ -331,13 +348,17 @@ Supports queries using @"..." syntax:
 
 		// Report results
 		if len(lightIDs) > 1 {
-			if turnOnWithColor {
+			if transitionMs > 0 {
+				printMessage("✓ Fading color to %s over %dms on %d/%d lights", color, transitionMs, successCount, len(lightIDs))
+			} else if turnOnWithColor {
 				printMessage("✓ Set color to %s and turned on %d/%d lights", color, successCount, len(lightIDs))
 			} else {
 				printMessage("✓ Set color to %s on %d/%d lights", color, successCount, len(lightIDs))
 			}
 		} else if successCount > 0 {
-			if turnOnWithColor {
+			if transitionMs > 0 {
+				printMessage("Light %s fading to %s over %dms", args[0], color, transitionMs)
+			} else if turnOnWithColor {
 				printMessage("Light %s turned on and color set to %s", args[0], color)
 			} else {
 				printMessage("Light %s color set to %s", args[0], color)
@@ -352,16 +373,37 @@ Supports queries using @"..." syntax:
 	},
 }
 
+// splitXY parses an XY color string like "0.5,0.4" and returns the coordinates
+func splitXY(s string) []float64 {
+	parts := strings.Split(s, ",")
+	if len(parts) != 2 {
+		return nil
+	}
+	x, err1 := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
+	y, err2 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+	if err1 != nil || err2 != nil {
+		return nil
+	}
+	// Sanity check - XY values should be between 0 and 1
+	if x < 0 || x > 1 || y < 0 || y > 1 {
+		return nil
+	}
+	return []float64{x, y}
+}
+
 // lightBrightnessCmd sets light brightness
 var lightBrightnessCmd = &cobra.Command{
 	Use:   "brightness <light-name-or-query> <percent>",
 	Short: "Set light brightness (0-100)",
 	Long: `Set brightness for one or more lights.
 
+Use the --turn-on flag to turn on the light while setting brightness (atomic operation).
+Use --transition to smoothly fade to the target brightness over time.
+
 Supports queries using @"..." syntax:
   hue lights brightness @"office" 80
-  hue lights brightness @"*lamp" 50
-  hue lights brightness @"on: room:bedroom" 10`,
+  hue lights brightness @"*lamp" 50 --transition 2000
+  hue lights brightness @"on: room:bedroom" 10 --turn-on`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		brightness, err := strconv.ParseFloat(args[1], 64)
@@ -397,7 +439,12 @@ Supports queries using @"..." syntax:
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
 
-				err := hueClient.SetLightBrightness(ctx, id, brightness)
+				var err error
+				if turnOnWithBrightness {
+					err = hueClient.SetLightBrightnessAndTurnOn(ctx, id, brightness, transitionMs)
+				} else {
+					err = hueClient.SetLightBrightnessWithTransition(ctx, id, brightness, transitionMs)
+				}
 
 				mu.Lock()
 				if err != nil {
@@ -413,9 +460,21 @@ Supports queries using @"..." syntax:
 
 		// Report results
 		if len(lightIDs) > 1 {
-			printMessage("✓ Set brightness to %.0f%% on %d/%d lights", brightness, successCount, len(lightIDs))
+			if transitionMs > 0 {
+				printMessage("✓ Fading brightness to %.0f%% over %dms on %d/%d lights", brightness, transitionMs, successCount, len(lightIDs))
+			} else if turnOnWithBrightness {
+				printMessage("✓ Set brightness to %.0f%% and turned on %d/%d lights", brightness, successCount, len(lightIDs))
+			} else {
+				printMessage("✓ Set brightness to %.0f%% on %d/%d lights", brightness, successCount, len(lightIDs))
+			}
 		} else if successCount > 0 {
-			printMessage("Light %s brightness set to %.0f%%", args[0], brightness)
+			if transitionMs > 0 {
+				printMessage("Light %s fading to %.0f%% over %dms", args[0], brightness, transitionMs)
+			} else if turnOnWithBrightness {
+				printMessage("Light %s turned on and brightness set to %.0f%%", args[0], brightness)
+			} else {
+				printMessage("Light %s brightness set to %.0f%%", args[0], brightness)
+			}
 		}
 
 		if len(errors) > 0 {
@@ -581,9 +640,176 @@ Supports queries using @"..." syntax:
 	},
 }
 
+// lightAlertCmd triggers an alert on a light
+var lightAlertCmd = &cobra.Command{
+	Use:   "alert <light-name-or-query> <action>",
+	Short: "Trigger an alert effect (breathe or lselect)",
+	Long: `Trigger a built-in alert effect on one or more lights.
+
+Actions:
+  breathe  - Single pulse/flash (great for notifications)
+  lselect  - 15 seconds of pulsing (attention-grabbing)
+
+Supports queries using @"..." syntax:
+  hue lights alert @"office" breathe
+  hue lights alert "Desk Lamp" lselect`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := context.Background()
+		action := args[1]
+
+		// Validate action
+		if action != "breathe" && action != "lselect" {
+			return fmt.Errorf("invalid action '%s': must be 'breathe' or 'lselect'", action)
+		}
+
+		// Resolve light name/query to IDs
+		lightIDs, err := resolveLightIDs(ctx, args[0])
+		if err != nil {
+			return err
+		}
+
+		// Apply to all matched lights concurrently
+		semaphore := make(chan struct{}, MaxConcurrentRequests)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errors []error
+		successCount := 0
+
+		for _, lightID := range lightIDs {
+			wg.Add(1)
+
+			go func(id string) {
+				defer wg.Done()
+
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				err := hueClient.SetLightAlert(ctx, id, action)
+
+				mu.Lock()
+				if err != nil {
+					errors = append(errors, err)
+				} else {
+					successCount++
+				}
+				mu.Unlock()
+			}(lightID)
+		}
+
+		wg.Wait()
+
+		// Report results
+		if len(lightIDs) > 1 {
+			printMessage("✓ Triggered '%s' alert on %d/%d lights", action, successCount, len(lightIDs))
+		} else if successCount > 0 {
+			printMessage("Alert '%s' triggered on %s", action, args[0])
+		}
+
+		if len(errors) > 0 {
+			return fmt.Errorf("%d lights failed", len(errors))
+		}
+
+		return nil
+	},
+}
+
+// lightTemperatureCmd sets light color temperature
+var lightTemperatureCmd = &cobra.Command{
+	Use:   "temperature <light-name-or-query> <mirek>",
+	Short: "Set color temperature (153-500 mirek)",
+	Long: `Set color temperature for one or more lights using mirek values.
+
+Mirek values (153-500):
+  153  - Coolest (6500K daylight, blue-white)
+  250  - Neutral (4000K)
+  370  - Warm (2700K soft white)
+  500  - Warmest (2000K candlelight, orange)
+
+Use --transition to smoothly fade to the target temperature.
+
+Supports queries using @"..." syntax:
+  hue lights temperature @"office" 250
+  hue lights temperature @"bedroom" 400 --transition 3000`,
+	Args: cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		mirek, err := strconv.Atoi(args[1])
+		if err != nil {
+			return fmt.Errorf("invalid mirek value: %w", err)
+		}
+
+		if mirek < 153 || mirek > 500 {
+			return fmt.Errorf("mirek must be between 153 (cool) and 500 (warm)")
+		}
+
+		ctx := context.Background()
+
+		// Resolve light name/query to IDs
+		lightIDs, err := resolveLightIDs(ctx, args[0])
+		if err != nil {
+			return err
+		}
+
+		// Apply to all matched lights concurrently
+		semaphore := make(chan struct{}, MaxConcurrentRequests)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		var errors []error
+		successCount := 0
+
+		for _, lightID := range lightIDs {
+			wg.Add(1)
+
+			go func(id string) {
+				defer wg.Done()
+
+				semaphore <- struct{}{}
+				defer func() { <-semaphore }()
+
+				err := hueClient.SetLightColorTemperatureWithTransition(ctx, id, mirek, transitionMs)
+
+				mu.Lock()
+				if err != nil {
+					errors = append(errors, err)
+				} else {
+					successCount++
+				}
+				mu.Unlock()
+			}(lightID)
+		}
+
+		wg.Wait()
+
+		// Report results
+		if len(lightIDs) > 1 {
+			if transitionMs > 0 {
+				printMessage("✓ Fading temperature to %d mirek over %dms on %d/%d lights", mirek, transitionMs, successCount, len(lightIDs))
+			} else {
+				printMessage("✓ Set temperature to %d mirek on %d/%d lights", mirek, successCount, len(lightIDs))
+			}
+		} else if successCount > 0 {
+			if transitionMs > 0 {
+				printMessage("Light %s fading to %d mirek over %dms", args[0], mirek, transitionMs)
+			} else {
+				printMessage("Light %s temperature set to %d mirek", args[0], mirek)
+			}
+		}
+
+		if len(errors) > 0 {
+			return fmt.Errorf("%d lights failed", len(errors))
+		}
+
+		return nil
+	},
+}
+
 func init() {
 	// Add flags
 	lightColorCmd.Flags().BoolVar(&turnOnWithColor, "turn-on", false, "Turn on the light when setting color (atomic operation)")
+	lightColorCmd.Flags().IntVar(&transitionMs, "transition", 0, "Transition time in milliseconds (e.g., 2000 for 2 seconds)")
+	lightBrightnessCmd.Flags().BoolVar(&turnOnWithBrightness, "turn-on", false, "Turn on the light when setting brightness (atomic operation)")
+	lightBrightnessCmd.Flags().IntVar(&transitionMs, "transition", 0, "Transition time in milliseconds (e.g., 2000 for 2 seconds)")
+	lightTemperatureCmd.Flags().IntVar(&transitionMs, "transition", 0, "Transition time in milliseconds (e.g., 2000 for 2 seconds)")
 
 	// Add subcommands
 	lightsCmd.AddCommand(listLightsCmd)
@@ -594,6 +820,8 @@ func init() {
 	lightsCmd.AddCommand(lightStateCmd)
 	lightsCmd.AddCommand(lightEffectsListCmd)
 	lightsCmd.AddCommand(lightEffectCmd)
+	lightsCmd.AddCommand(lightAlertCmd)
+	lightsCmd.AddCommand(lightTemperatureCmd)
 
 	// Add to root
 	rootCmd.AddCommand(lightsCmd)

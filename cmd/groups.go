@@ -11,6 +11,7 @@ import (
 
 var (
 	turnOnGroupWithColor bool
+	groupTransitionMs    int
 )
 
 // groupsCmd represents the groups command group
@@ -187,10 +188,11 @@ var groupColorCmd = &cobra.Command{
 	Long:  `Set group color using hex code (#FF0000) or color name (red, blue, green, etc.)
 
 Use the --turn-on flag to turn on all lights in the group while setting color (atomic operation).
+Use --transition to smoothly fade to the target color over time.
 
 Supports patterns using @"..." syntax:
   hue groups color @"bedroom" red
-  hue groups color @"down*" blue`,
+  hue groups color @"down*" blue --transition 2000`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		color := args[1]
@@ -228,7 +230,7 @@ Supports patterns using @"..." syntax:
 				if turnOnGroupWithColor {
 					err = hueClient.SetGroupColorAndTurnOn(ctx, id, hexColor)
 				} else {
-					err = hueClient.SetGroupColor(ctx, id, hexColor)
+					err = hueClient.SetGroupColorWithTransition(ctx, id, hexColor, groupTransitionMs)
 				}
 
 				mu.Lock()
@@ -245,13 +247,17 @@ Supports patterns using @"..." syntax:
 
 		// Report results
 		if len(groupIDs) > 1 {
-			if turnOnGroupWithColor {
+			if groupTransitionMs > 0 {
+				printMessage("✓ Fading color to %s over %dms on %d/%d groups", color, groupTransitionMs, successCount, len(groupIDs))
+			} else if turnOnGroupWithColor {
 				printMessage("✓ Set color to %s and turned on %d/%d groups", color, successCount, len(groupIDs))
 			} else {
 				printMessage("✓ Set color to %s on %d/%d groups", color, successCount, len(groupIDs))
 			}
 		} else if successCount > 0 {
-			if turnOnGroupWithColor {
+			if groupTransitionMs > 0 {
+				printMessage("Group %s fading to %s over %dms", args[0], color, groupTransitionMs)
+			} else if turnOnGroupWithColor {
 				printMessage("Group %s turned on and color set to %s", args[0], color)
 			} else {
 				printMessage("Group %s color set to %s", args[0], color)
@@ -272,9 +278,11 @@ var groupBrightnessCmd = &cobra.Command{
 	Short: "Set group brightness (0-100)",
 	Long: `Set brightness for one or more groups.
 
+Use --transition to smoothly fade to the target brightness over time.
+
 Supports patterns using @"..." syntax:
   hue groups brightness @"bedroom" 50
-  hue groups brightness @"*stairs" 20`,
+  hue groups brightness @"*stairs" 20 --transition 3000`,
 	Args:  cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		brightness, err := strconv.ParseFloat(args[1], 64)
@@ -310,7 +318,7 @@ Supports patterns using @"..." syntax:
 				semaphore <- struct{}{}
 				defer func() { <-semaphore }()
 
-				err := hueClient.SetGroupBrightness(ctx, id, brightness)
+				err := hueClient.SetGroupBrightnessWithTransition(ctx, id, brightness, groupTransitionMs)
 
 				mu.Lock()
 				if err != nil {
@@ -326,9 +334,17 @@ Supports patterns using @"..." syntax:
 
 		// Report results
 		if len(groupIDs) > 1 {
-			printMessage("✓ Set brightness to %.0f%% on %d/%d groups", brightness, successCount, len(groupIDs))
+			if groupTransitionMs > 0 {
+				printMessage("✓ Fading brightness to %.0f%% over %dms on %d/%d groups", brightness, groupTransitionMs, successCount, len(groupIDs))
+			} else {
+				printMessage("✓ Set brightness to %.0f%% on %d/%d groups", brightness, successCount, len(groupIDs))
+			}
 		} else if successCount > 0 {
-			printMessage("Group %s brightness set to %.0f%%", args[0], brightness)
+			if groupTransitionMs > 0 {
+				printMessage("Group %s fading to %.0f%% over %dms", args[0], brightness, groupTransitionMs)
+			} else {
+				printMessage("Group %s brightness set to %.0f%%", args[0], brightness)
+			}
 		}
 
 		if len(errors) > 0 {
@@ -378,6 +394,8 @@ var listRoomsCmd = &cobra.Command{
 func init() {
 	// Add flags
 	groupColorCmd.Flags().BoolVar(&turnOnGroupWithColor, "turn-on", false, "Turn on the group when setting color (atomic operation)")
+	groupColorCmd.Flags().IntVar(&groupTransitionMs, "transition", 0, "Transition time in milliseconds (e.g., 2000 for 2 seconds)")
+	groupBrightnessCmd.Flags().IntVar(&groupTransitionMs, "transition", 0, "Transition time in milliseconds (e.g., 2000 for 2 seconds)")
 
 	// Add subcommands
 	groupsCmd.AddCommand(listGroupsCmd)

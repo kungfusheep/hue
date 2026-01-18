@@ -152,10 +152,19 @@ func (c *Client) GetScenes(ctx context.Context) ([]Scene, error) {
 
 // ActivateScene activates a scene
 func (c *Client) ActivateScene(ctx context.Context, id string) error {
+	return c.ActivateSceneWithTransition(ctx, id, 0)
+}
+
+// ActivateSceneWithTransition activates a scene with optional transition time in milliseconds
+func (c *Client) ActivateSceneWithTransition(ctx context.Context, id string, transitionMs int) error {
+	recall := map[string]interface{}{
+		"action": "active",
+	}
+	if transitionMs > 0 {
+		recall["duration"] = transitionMs
+	}
 	update := map[string]interface{}{
-		"recall": map[string]interface{}{
-			"action": "active",
-		},
+		"recall": recall,
 	}
 	_, err := c.put(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
 	return err
@@ -341,17 +350,47 @@ func (c *Client) TurnOffLight(ctx context.Context, id string) error {
 
 // SetLightBrightness sets a light's brightness (0-100)
 func (c *Client) SetLightBrightness(ctx context.Context, id string, brightness float64) error {
-	return c.UpdateLight(ctx, id, LightUpdate{
+	return c.SetLightBrightnessWithTransition(ctx, id, brightness, 0)
+}
+
+// SetLightBrightnessWithTransition sets brightness with optional transition time in milliseconds
+func (c *Client) SetLightBrightnessWithTransition(ctx context.Context, id string, brightness float64, transitionMs int) error {
+	update := LightUpdate{
 		Dimming: &Dimming{Brightness: brightness},
-	})
+	}
+	if transitionMs > 0 {
+		update.Dynamics = &Dynamics{Duration: transitionMs}
+	}
+	return c.UpdateLight(ctx, id, update)
+}
+
+// SetLightBrightnessAndTurnOn sets brightness and turns on in a single atomic operation
+func (c *Client) SetLightBrightnessAndTurnOn(ctx context.Context, id string, brightness float64, transitionMs int) error {
+	update := LightUpdate{
+		On:      &OnState{On: true},
+		Dimming: &Dimming{Brightness: brightness},
+	}
+	if transitionMs > 0 {
+		update.Dynamics = &Dynamics{Duration: transitionMs}
+	}
+	return c.UpdateLight(ctx, id, update)
 }
 
 // SetLightColor sets a light's color from hex string
 func (c *Client) SetLightColor(ctx context.Context, id string, hexColor string) error {
+	return c.SetLightColorWithTransition(ctx, id, hexColor, 0)
+}
+
+// SetLightColorWithTransition sets color with optional transition time in milliseconds
+func (c *Client) SetLightColorWithTransition(ctx context.Context, id string, hexColor string, transitionMs int) error {
 	x, y := hexToXY(hexColor)
-	return c.UpdateLight(ctx, id, LightUpdate{
+	update := LightUpdate{
 		Color: &Color{XY: XY{X: x, Y: y}},
-	})
+	}
+	if transitionMs > 0 {
+		update.Dynamics = &Dynamics{Duration: transitionMs}
+	}
+	return c.UpdateLight(ctx, id, update)
 }
 
 // SetLightColorAndTurnOn sets a light's color and turns it on in a single atomic operation
@@ -359,6 +398,13 @@ func (c *Client) SetLightColorAndTurnOn(ctx context.Context, id string, hexColor
 	x, y := hexToXY(hexColor)
 	return c.UpdateLight(ctx, id, LightUpdate{
 		On:    &OnState{On: true},
+		Color: &Color{XY: XY{X: x, Y: y}},
+	})
+}
+
+// SetLightColorXY sets a light's color from XY coordinates directly
+func (c *Client) SetLightColorXY(ctx context.Context, id string, x, y float64) error {
+	return c.UpdateLight(ctx, id, LightUpdate{
 		Color: &Color{XY: XY{X: x, Y: y}},
 	})
 }
@@ -392,17 +438,35 @@ func (c *Client) TurnOffGroup(ctx context.Context, id string) error {
 
 // SetGroupBrightness sets a group's brightness (0-100)
 func (c *Client) SetGroupBrightness(ctx context.Context, id string, brightness float64) error {
-	return c.UpdateGroup(ctx, id, GroupUpdate{
+	return c.SetGroupBrightnessWithTransition(ctx, id, brightness, 0)
+}
+
+// SetGroupBrightnessWithTransition sets group brightness with optional transition time in milliseconds
+func (c *Client) SetGroupBrightnessWithTransition(ctx context.Context, id string, brightness float64, transitionMs int) error {
+	update := GroupUpdate{
 		Dimming: &Dimming{Brightness: brightness},
-	})
+	}
+	if transitionMs > 0 {
+		update.Dynamics = &Dynamics{Duration: transitionMs}
+	}
+	return c.UpdateGroup(ctx, id, update)
 }
 
 // SetGroupColor sets a group's color from hex string
 func (c *Client) SetGroupColor(ctx context.Context, id string, hexColor string) error {
+	return c.SetGroupColorWithTransition(ctx, id, hexColor, 0)
+}
+
+// SetGroupColorWithTransition sets group color with optional transition time in milliseconds
+func (c *Client) SetGroupColorWithTransition(ctx context.Context, id string, hexColor string, transitionMs int) error {
 	x, y := hexToXY(hexColor)
-	return c.UpdateGroup(ctx, id, GroupUpdate{
+	update := GroupUpdate{
 		Color: &Color{XY: XY{X: x, Y: y}},
-	})
+	}
+	if transitionMs > 0 {
+		update.Dynamics = &Dynamics{Duration: transitionMs}
+	}
+	return c.UpdateGroup(ctx, id, update)
 }
 
 // SetGroupColorAndTurnOn sets a group's color and turns it on in a single atomic operation
@@ -429,9 +493,56 @@ func (c *Client) SetGroupEffect(ctx context.Context, id string, effect string, d
 
 // IdentifyLight makes a light blink for identification
 func (c *Client) IdentifyLight(ctx context.Context, id string) error {
+	return c.SetLightAlert(ctx, id, "breathe")
+}
+
+// SetLightAlert triggers an alert action on a light
+// Actions: "breathe" (single pulse), "lselect" (15s of pulses)
+func (c *Client) SetLightAlert(ctx context.Context, id string, action string) error {
 	return c.UpdateLight(ctx, id, LightUpdate{
-		Alert: &Alert{Action: "breathe"},
+		Alert: &Alert{Action: action},
 	})
+}
+
+// SetLightColorTemperature sets a light's color temperature in mirek (153-500)
+// Lower values = cooler/bluer (153 = 6500K daylight)
+// Higher values = warmer/yellower (500 = 2000K candlelight)
+func (c *Client) SetLightColorTemperature(ctx context.Context, id string, mirek int) error {
+	return c.SetLightColorTemperatureWithTransition(ctx, id, mirek, 0)
+}
+
+// SetLightColorTemperatureWithTransition sets color temperature with optional transition
+func (c *Client) SetLightColorTemperatureWithTransition(ctx context.Context, id string, mirek int, transitionMs int) error {
+	update := LightUpdate{
+		ColorTemperature: &ColorTemperature{Mirek: mirek},
+	}
+	if transitionMs > 0 {
+		update.Dynamics = &Dynamics{Duration: transitionMs}
+	}
+	return c.UpdateLight(ctx, id, update)
+}
+
+// SetGroupAlert triggers an alert action on a group
+func (c *Client) SetGroupAlert(ctx context.Context, id string, action string) error {
+	return c.UpdateGroup(ctx, id, GroupUpdate{
+		Alert: &Alert{Action: action},
+	})
+}
+
+// SetGroupColorTemperature sets a group's color temperature in mirek
+func (c *Client) SetGroupColorTemperature(ctx context.Context, id string, mirek int) error {
+	return c.SetGroupColorTemperatureWithTransition(ctx, id, mirek, 0)
+}
+
+// SetGroupColorTemperatureWithTransition sets group color temperature with optional transition
+func (c *Client) SetGroupColorTemperatureWithTransition(ctx context.Context, id string, mirek int, transitionMs int) error {
+	update := GroupUpdate{
+		ColorTemperature: &ColorTemperature{Mirek: mirek},
+	}
+	if transitionMs > 0 {
+		update.Dynamics = &Dynamics{Duration: transitionMs}
+	}
+	return c.UpdateGroup(ctx, id, update)
 }
 
 // GetAllSupportedEffects returns all effects supported by any light in the system

@@ -17,11 +17,12 @@ var scenesCmd = &cobra.Command{
 }
 
 var (
-	showIDs     bool
-	showActions bool
-	showGroups  bool
-	dynamicMode bool
-	sceneSpeed  float64
+	showIDs           bool
+	showActions       bool
+	showGroups        bool
+	dynamicMode       bool
+	sceneSpeed        float64
+	sceneTransitionMs int
 )
 
 // listHueScenesCmd lists all native Hue scenes
@@ -180,11 +181,17 @@ Examples:
 var activateHueSceneCmd = &cobra.Command{
 	Use:   "activate <scene-name-or-id>",
 	Short: "Activate a native Hue scene",
-	Long:  `Activate a native Hue scene by name or ID. For scenes with the same name in different rooms, use 'SceneName:RoomName' format (e.g., 'Nightlight:Master Bedroom').
+	Long: `Activate a native Hue scene by name or ID. For scenes with the same name in different rooms, use 'SceneName:RoomName' format (e.g., 'Nightlight:Master Bedroom').
 
-Use the --dynamic flag to activate animated/dynamic scenes that cycle through colors.
-Use the --speed flag to control animation speed (0.0 to 1.0, where 1.0 is fastest).`,
-	Args:  cobra.ExactArgs(1),
+Use --transition to smoothly fade to the scene over time.
+Use --dynamic to activate animated/dynamic scenes that cycle through colors.
+Use --speed to control animation speed (0.0 to 1.0, where 1.0 is fastest).
+
+Examples:
+  hue scenes activate "Relax"
+  hue scenes activate "Concentrate:Office" --transition 3000
+  hue scenes activate "Energize" --dynamic --speed 0.5`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx := context.Background()
 
@@ -219,11 +226,15 @@ Use the --speed flag to control animation speed (0.0 to 1.0, where 1.0 is fastes
 				printMessage("Scene %s activated in dynamic mode", args[0])
 			}
 		} else {
-			err = hueClient.ActivateScene(ctx, sceneID)
+			err = hueClient.ActivateSceneWithTransition(ctx, sceneID, sceneTransitionMs)
 			if err != nil {
 				return fmt.Errorf("failed to activate scene: %w", err)
 			}
-			printMessage("Scene %s activated", args[0])
+			if sceneTransitionMs > 0 {
+				printMessage("Scene %s fading over %dms", args[0], sceneTransitionMs)
+			} else {
+				printMessage("Scene %s activated", args[0])
+			}
 		}
 
 		return nil
@@ -313,6 +324,7 @@ func init() {
 	// Add flags to activate command
 	activateHueSceneCmd.Flags().BoolVarP(&dynamicMode, "dynamic", "d", false, "Activate scene in dynamic/animated mode")
 	activateHueSceneCmd.Flags().Float64VarP(&sceneSpeed, "speed", "s", 0.0, "Animation speed (0.0-1.0, requires --dynamic)")
+	activateHueSceneCmd.Flags().IntVar(&sceneTransitionMs, "transition", 0, "Transition time in milliseconds (e.g., 3000 for 3 seconds)")
 
 	// Add subcommands
 	scenesCmd.AddCommand(listHueScenesCmd)
