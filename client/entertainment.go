@@ -109,8 +109,7 @@ func (c *Client) StartEntertainment(ctx context.Context, id string) error {
 	update := map[string]interface{}{
 		"action": "start",
 	}
-	_, err := c.put(ctx, fmt.Sprintf("/resource/entertainment_configuration/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/entertainment_configuration/%s", id), update)
 }
 
 // StopEntertainment stops entertainment mode
@@ -118,8 +117,7 @@ func (c *Client) StopEntertainment(ctx context.Context, id string) error {
 	update := map[string]interface{}{
 		"action": "stop",
 	}
-	_, err := c.put(ctx, fmt.Sprintf("/resource/entertainment_configuration/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/entertainment_configuration/%s", id), update)
 }
 
 // EntertainmentStreamer handles real-time color streaming via UDP

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -143,6 +144,75 @@ func TestUpdateLight(t *testing.T) {
 		}
 	} else {
 		t.Error("Expected on field in request")
+	}
+}
+
+func TestUpdateLightBridgeErrors(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"data": []interface{}{},
+			"errors": []Error{{
+				Description: "parameter, /metadata/name, not available",
+			}},
+		})
+	}))
+	defer server.Close()
+
+	client := &Client{
+		bridgeIP:   server.URL,
+		username:   "test-key",
+		httpClient: server.Client(),
+		baseURL:    server.URL + "/clip/v2",
+	}
+
+	err := client.UpdateLight(context.Background(), "light-1", LightUpdate{})
+	if err == nil {
+		t.Fatal("expected API error from bridge errors array")
+	}
+	if err.Error() != "API error: parameter, /metadata/name, not available" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateLightEmptyBody(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := &Client{
+		bridgeIP:   server.URL,
+		username:   "test-key",
+		httpClient: server.Client(),
+		baseURL:    server.URL + "/clip/v2",
+	}
+
+	if err := client.UpdateLight(context.Background(), "light-1", LightUpdate{}); err != nil {
+		t.Fatalf("empty body should succeed: %v", err)
+	}
+}
+
+func TestUpdateLightNonJSONBody(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("not-json"))
+	}))
+	defer server.Close()
+
+	client := &Client{
+		bridgeIP:   server.URL,
+		username:   "test-key",
+		httpClient: server.Client(),
+		baseURL:    server.URL + "/clip/v2",
+	}
+
+	err := client.UpdateLight(context.Background(), "light-1", LightUpdate{})
+	if err == nil {
+		t.Fatal("expected unmarshal error for non-JSON body")
+	}
+	if !strings.Contains(err.Error(), "failed to unmarshal response") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 

@@ -120,8 +120,7 @@ func (c *Client) DeleteScene(ctx context.Context, id string) error {
 
 // UpdateScene updates a scene's metadata
 func (c *Client) UpdateScene(ctx context.Context, id string, update SceneUpdate) error {
-	_, err := c.put(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
 }
 
 // Group CRUD operations
@@ -321,14 +320,12 @@ func (c *Client) RemoveLightFromGroup(ctx context.Context, groupID, lightID stri
 
 // UpdateRoom updates a room
 func (c *Client) UpdateRoom(ctx context.Context, id string, update RoomUpdate) error {
-	_, err := c.put(ctx, fmt.Sprintf("/resource/room/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/room/%s", id), update)
 }
 
 // UpdateZone updates a zone
 func (c *Client) UpdateZone(ctx context.Context, id string, update ZoneUpdate) error {
-	_, err := c.put(ctx, fmt.Sprintf("/resource/zone/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/zone/%s", id), update)
 }
 
 // CreateZone creates a new zone

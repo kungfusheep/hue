@@ -43,8 +43,8 @@ func main() {
 
 // runCLI initializes and runs the CLI interface
 func runCLI() {
-	// For help commands, don't initialize the client
-	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h") {
+	// Help and bridge discovery do not need a configured client.
+	if len(os.Args) > 1 && (os.Args[1] == "help" || os.Args[1] == "--help" || os.Args[1] == "-h" || os.Args[1] == "discover") {
 		cmd.Execute(nil)
 		return
 	}

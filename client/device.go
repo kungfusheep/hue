@@ -82,6 +82,5 @@ func (c *Client) IdentifyDevice(ctx context.Context, id string) error {
 			"action": "identify",
 		},
 	}
-	_, err := c.put(ctx, fmt.Sprintf("/resource/device/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/device/%s", id), update)
 }

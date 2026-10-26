@@ -79,8 +79,7 @@ func (c *Client) GetLight(ctx context.Context, id string) (*Light, error) {
 
 // UpdateLight updates a light's state
 func (c *Client) UpdateLight(ctx context.Context, id string, update LightUpdate) error {
-	_, err := c.put(ctx, fmt.Sprintf("/resource/light/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/light/%s", id), update)
 }
 
 // GetGroups returns all groups/rooms
@@ -127,8 +126,7 @@ func (c *Client) GetGroup(ctx context.Context, id string) (*Group, error) {
 
 // UpdateGroup updates a group's state
 func (c *Client) UpdateGroup(ctx context.Context, id string, update GroupUpdate) error {
-	_, err := c.put(ctx, fmt.Sprintf("/resource/grouped_light/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/grouped_light/%s", id), update)
 }
 
 // GetScenes returns all scenes
@@ -166,8 +164,7 @@ func (c *Client) ActivateSceneWithTransition(ctx context.Context, id string, tra
 	update := map[string]interface{}{
 		"recall": recall,
 	}
-	_, err := c.put(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
 }
 
 // ActivateSceneDynamic activates a scene with dynamic/animated palette
@@ -177,8 +174,7 @@ func (c *Client) ActivateSceneDynamic(ctx context.Context, id string) error {
 			"action": "dynamic_palette",
 		},
 	}
-	_, err := c.put(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
 }
 
 // UpdateSceneSpeed updates the speed of a scene (must be done before activation)
@@ -186,8 +182,7 @@ func (c *Client) UpdateSceneSpeed(ctx context.Context, id string, speed float64)
 	update := map[string]interface{}{
 		"speed": speed,
 	}
-	_, err := c.put(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
-	return err
+	return c.putOK(ctx, fmt.Sprintf("/resource/scene/%s", id), update)
 }
 
 // CreateScene creates a new scene
@@ -330,6 +325,27 @@ func (c *Client) request(ctx context.Context, method, path string, data interfac
 	}
 	
 	return respBody, nil
+}
+
+// putOK writes a resource and returns an error when the bridge reports one.
+func (c *Client) putOK(ctx context.Context, path string, data interface{}) error {
+	body, err := c.put(ctx, path, data)
+	if err != nil {
+		return err
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	var response struct {
+		Errors []Error `json:"errors"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+	if len(response.Errors) > 0 {
+		return fmt.Errorf("API error: %s", response.Errors[0].Description)
+	}
+	return nil
 }
 
 // Helper methods for common operations
