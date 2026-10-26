@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 )
@@ -588,19 +589,19 @@ func hexToXY(hex string) (float64, float64) {
 	
 	// Apply gamma correction
 	if rf > 0.04045 {
-		rf = pow((rf+0.055)/1.055, 2.4)
+		rf = math.Pow((rf+0.055)/1.055, 2.4)
 	} else {
 		rf = rf / 12.92
 	}
 	
 	if gf > 0.04045 {
-		gf = pow((gf+0.055)/1.055, 2.4)
+		gf = math.Pow((gf+0.055)/1.055, 2.4)
 	} else {
 		gf = gf / 12.92
 	}
 	
 	if bf > 0.04045 {
-		bf = pow((bf+0.055)/1.055, 2.4)
+		bf = math.Pow((bf+0.055)/1.055, 2.4)
 	} else {
 		bf = bf / 12.92
 	}
@@ -620,13 +621,4 @@ func hexToXY(hex string) (float64, float64) {
 	y := Y / sum
 	
 	return x, y
-}
-
-func pow(base, exp float64) float64 {
-	// Simple power function
-	result := 1.0
-	for i := 0; i < int(exp); i++ {
-		result *= base
-	}
-	return result
 }
